@@ -1,0 +1,83 @@
+---
+- name: extract VM capabilities from site A
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars_engine_a.yml
+
+  pre_tasks:
+    - name: Login to site A oVirt engine
+      ovirt_auth:
+        hostname: "{{ engine_fqdn }}"
+        username: "{{ engine_user }}"
+        password: "{{ engine_password }}"
+        ca_file: "{{ engine_cafile | default(omit) }}"
+        insecure: "{{ engine_insecure | default(true) }}"
+      tags:
+        - always
+
+  tasks:
+    - name: Collecting VM info into vm_info_result variable
+      ovirt_vm_info:
+        auth: "{{ ovirt_auth }}"
+        pattern: name=120
+        fetch_nested: true # this parameter needs to be enabled to catch names other than IDs
+        nested_attributes: name # need names since ovirt_vm cannot use IDs to create vms
+      register: vm_info_result
+   # - debug:
+   #     msg: "{{ vm_info_result.ovirt_vms }}"
+
+  post_tasks:
+    - name: Logout from site A oVirt engine
+      ovirt_auth:
+        state: absent
+        ovirt_auth: "{{ ovirt_auth }}"
+      tags:
+        - always
+
+- name: create VM on site B
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    - memory_unit: " B"
+  vars_files:
+    - vars_engine_b.yml
+
+  pre_tasks:
+    - name: Login to site B oVirt engine
+      ovirt_auth:
+        hostname: "{{ engine_fqdn }}"
+        username: "{{ engine_user }}"
+        password: "{{ engine_password }}"
+        ca_file: "{{ engine_cafile | default(omit) }}"
+        insecure: "{{ engine_insecure | default(true) }}"
+      tags:
+        - always
+
+  tasks:
+    - name: create VM on site B based on vm_info_result variable
+      ovirt_vm:
+        auth: "{{ ovirt_auth }}"
+        name: "{{ vm_info_result.ovirt_vms[0]['name'] }}-NEW"
+        state: present
+        cpu_cores: "{{ vm_info_result.ovirt_vms[0]['cpu']['topology']['cores'] }}"
+        cpu_sockets: "{{ vm_info_result.ovirt_vms[0]['cpu']['topology']['sockets'] }}"
+        cpu_threads: "{{ vm_info_result.ovirt_vms[0]['cpu']['topology']['threads'] }}"
+        #template: "{{ vm_info_result.ovirt_vms[0]['template']['name'] }}" # check error with blank template
+        memory: "{{ vm_info_result.ovirt_vms[0]['memory'] + memory_unit }}"
+        type: "{{ vm_info_result.ovirt_vms[0]['type'] }}"
+        operating_system: "{{ vm_info_result.ovirt_vms[0]['os']['type'] }}"
+        high_availability: "{{ vm_info_result.ovirt_vms[0]['high_availability']['enabled'] }}"
+        high_availability_priority: "{{ vm_info_result.ovirt_vms[0]['high_availability']['priority'] }}"
+        cluster: "{{ vm_info_result.ovirt_vms[0]['cluster']['name'] }}"
+
+  post_tasks:
+    - name: Logout from site B oVirt engine
+      ovirt_auth:
+        state: absent
+        ovirt_auth: "{{ ovirt_auth }}"
+      tags:
+        - always
+...
